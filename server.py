@@ -37,77 +37,8 @@ class AMCMartHandler(BaseHTTPRequestHandler):
             self.get_all_promocodes()
         elif self.path == '/api/health':
             self.health_check()
-        elif self.path == '/':
-            self.serve_welcome_page()
         else:
             self.send_error(404)
-
-    def serve_welcome_page(self):
-        """Serve a welcome page for the root URL"""
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html')
-        self._set_cors_headers()
-        self.end_headers()
-        
-        html = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>AMCMart API Server</title>
-            <style>
-                body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
-                .header { background: #e74c3c; color: white; padding: 20px; border-radius: 8px; text-align: center; }
-                .endpoint { background: #f8f9fa; padding: 15px; margin: 10px 0; border-left: 4px solid #e74c3c; }
-                .method { color: #e74c3c; font-weight: bold; }
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <h1>🛒 AMCMart API Server</h1>
-                <p>Premium Chicken & Mutton Delivery Service API</p>
-            </div>
-            
-            <h2>📍 Available Endpoints</h2>
-            
-            <div class="endpoint">
-                <span class="method">GET</span> <code>/api/health</code> - Health check
-            </div>
-            
-            <div class="endpoint">
-                <span class="method">GET</span> <code>/api/products</code> - Get all products<br>
-                <span class="method">POST</span> <code>/api/products</code> - Create product<br>
-                <span class="method">PUT</span> <code>/api/products/{id}</code> - Update product<br>
-                <span class="method">DELETE</span> <code>/api/products/{id}</code> - Delete product
-            </div>
-            
-            <div class="endpoint">
-                <span class="method">GET</span> <code>/api/orders</code> - Get all orders<br>
-                <span class="method">POST</span> <code>/api/orders</code> - Create order<br>
-                <span class="method">PUT</span> <code>/api/orders/{id}/status</code> - Update order status
-            </div>
-            
-            <div class="endpoint">
-                <span class="method">GET</span> <code>/api/customers</code> - Get customers
-            </div>
-            
-            <div class="endpoint">
-                <span class="method">GET</span> <code>/api/dashboard/stats</code> - Dashboard statistics
-            </div>
-            
-            <div class="endpoint">
-                <span class="method">GET</span> <code>/api/promocodes</code> - Get promo codes<br>
-                <span class="method">POST</span> <code>/api/promo/validate</code> - Validate promo code
-            </div>
-            
-            <p><strong>🌐 API Base URL:</strong> <code id="baseUrl"></code></p>
-            
-            <script>
-                document.getElementById('baseUrl').textContent = window.location.origin;
-            </script>
-        </body>
-        </html>
-        """
-        self.wfile.write(html.encode())
 
     def do_POST(self):
         if self.path == '/api/products':
@@ -353,7 +284,7 @@ class AMCMartHandler(BaseHTTPRequestHandler):
                 data['price_1kg'],
                 data['price_500gm'],
                 data['stock_status'],
-                data.get('image', 'https://via.placeholder.com/300x250?text=Product+Image')
+                data.get('image', '/api/placeholder/300/250')
             ))
             
             product_id = cursor.lastrowid
@@ -464,6 +395,54 @@ class AMCMartHandler(BaseHTTPRequestHandler):
 
     # ============ ORDERS ENDPOINTS ============
     
+    # def create_order(self):
+    #     try:
+    #         content_length = int(self.headers['Content-Length'])
+    #         post_data = self.rfile.read(content_length)
+    #         data = json.loads(post_data.decode('utf-8'))
+            
+    #         # Generate order ID
+    #         order_id = 'AMC' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+            
+    #         # Validate required fields
+    #         # required_fields = ['firstName', 'lastName', 'phoneNo', 'email', 'address', 'city', 'pincode', 'deliveryType', 'paymentMethod', 'items', 'total']
+    #         # for field in required_fields:
+    #         #     if not data.get(field):
+    #         #         raise ValueError(f"Missing required field: {field}")
+
+    #         # Validate required fields (email is optional now)
+    #         required_fields = ['firstName', 'lastName', 'phoneNo', 'address', 'city', 'pincode', 'deliveryType', 'paymentMethod', 'items', 'total']
+    #         for field in required_fields:
+    #             if not data.get(field):
+    #                 raise ValueError(f"Missing required field: {field}")
+            
+    #         # Save to database
+    #         self.save_order_to_db(order_id, data)
+            
+    #         self.send_response(200)
+    #         self.send_header('Content-Type', 'application/json')
+    #         self._set_cors_headers()
+    #         self.end_headers()
+            
+    #         response = {
+    #             'success': True,
+    #             'data': {
+    #                 'order_id': order_id,
+    #                 'message': 'Order placed successfully!',
+    #                 'customer_name': f"{data['firstName']} {data['lastName']}"
+    #             }
+    #         }
+    #         self.wfile.write(json.dumps(response).encode())
+            
+    #     except Exception as e:
+    #         self.send_response(400)
+    #         self.send_header('Content-Type', 'application/json')
+    #         self._set_cors_headers()
+    #         self.end_headers()
+            
+    #         response = {'success': False, 'error': str(e)}
+    #         self.wfile.write(json.dumps(response).encode())
+
     def create_order(self):
         try:
             content_length = int(self.headers['Content-Length'])
@@ -473,8 +452,8 @@ class AMCMartHandler(BaseHTTPRequestHandler):
             # Generate order ID
             order_id = 'AMC' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
             
-            # Validate required fields
-            required_fields = ['firstName', 'lastName', 'phoneNo', 'email', 'address', 'city', 'pincode', 'deliveryType', 'paymentMethod', 'items', 'total']
+            # Validate required fields (email is optional)
+            required_fields = ['firstName', 'lastName', 'phoneNo', 'address', 'city', 'pincode', 'deliveryType', 'paymentMethod', 'items', 'total']
             for field in required_fields:
                 if not data.get(field):
                     raise ValueError(f"Missing required field: {field}")
@@ -838,10 +817,44 @@ class AMCMartHandler(BaseHTTPRequestHandler):
             'success': True,
             'message': 'AMCMart API is running!',
             'timestamp': datetime.now().isoformat(),
-            'database': 'amcmart.db',
-            'environment': 'production' if os.environ.get('PORT') else 'development'
+            'database': 'amcmart.db'
         }
         self.wfile.write(json.dumps(response).encode())
+
+    # def save_order_to_db(self, order_id, data):
+    #     conn = sqlite3.connect('amcmart.db')
+    #     cursor = conn.cursor()
+        
+    #     # Insert order with processing status (next step after pending)
+    #     cursor.execute('''
+    #         INSERT INTO orders (orderid, firstName, lastName, phoneNo, email, address, city, pincode, deliveryType, paymentMethod, promocode, items, total, status, created_at)
+    #         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    #     ''', (
+    #         order_id,
+    #         data.get('firstName'),
+    #         data.get('lastName'),
+    #         data.get('phoneNo'),
+    #         data.get('email'),
+    #         data.get('address'),
+    #         data.get('city'),
+    #         data.get('pincode'),
+    #         data.get('deliveryType'),
+    #         data.get('paymentMethod'),
+    #         data.get('promocode', ''),
+    #         data.get('items'),
+    #         data.get('total'),
+    #         'processing',  # New orders start as processing
+    #         datetime.now().isoformat()
+    #     ))
+        
+    #     # Update promo code to used if provided
+    #     if data.get('promocode'):
+    #         cursor.execute('''
+    #             UPDATE promocodes SET used = 'yes' WHERE code = ?
+    #         ''', (data.get('promocode').upper(),))
+        
+    #     conn.commit()
+    #     conn.close()
 
     def save_order_to_db(self, order_id, data):
         conn = sqlite3.connect('amcmart.db')
@@ -856,7 +869,7 @@ class AMCMartHandler(BaseHTTPRequestHandler):
             data.get('firstName'),
             data.get('lastName'),
             data.get('phoneNo'),
-            data.get('email'),
+            data.get('email', ''),  # Default to empty string if not provided
             data.get('address'),
             data.get('city'),
             data.get('pincode'),
@@ -941,85 +954,23 @@ def init_database():
         )
     ''')
     
-    # ============ ADD SAMPLE DATA (Essential for Render) ============
-    
-    # Check if sample data already exists
-    cursor.execute('SELECT COUNT(*) FROM products')
-    product_count = cursor.fetchone()[0]
-    
-    if product_count == 0:
-        print("🔄 Initializing database with sample data...")
-        
-        # Sample Products
-        sample_products = [
-            ('Premium Chicken Breast', 'chicken', 450, 230, 'in_stock', 'https://via.placeholder.com/300x250/e74c3c/ffffff?text=Chicken+Breast'),
-            ('Fresh Mutton Curry Cut', 'mutton', 650, 330, 'in_stock', 'https://via.placeholder.com/300x250/8e44ad/ffffff?text=Mutton+Curry'),
-            ('Chicken Biryani Cut', 'chicken', 420, 215, 'in_stock', 'https://via.placeholder.com/300x250/e74c3c/ffffff?text=Biryani+Cut'),
-            ('Mutton Leg Pieces', 'mutton', 680, 345, 'in_stock', 'https://via.placeholder.com/300x250/8e44ad/ffffff?text=Leg+Pieces'),
-            ('Chicken Wings', 'chicken', 380, 195, 'in_stock', 'https://via.placeholder.com/300x250/e74c3c/ffffff?text=Chicken+Wings'),
-            ('Mutton Ribs', 'mutton', 720, 365, 'out_of_stock', 'https://via.placeholder.com/300x250/95a5a6/ffffff?text=Out+of+Stock'),
-            ('Chicken Drumsticks', 'chicken', 400, 205, 'in_stock', 'https://via.placeholder.com/300x250/e74c3c/ffffff?text=Drumsticks'),
-            ('Mutton Shoulder', 'mutton', 700, 355, 'in_stock', 'https://via.placeholder.com/300x250/8e44ad/ffffff?text=Shoulder')
-        ]
-        
-        cursor.executemany('''
-            INSERT INTO products (productname, category, price_1kg, price_500gm, stock_status, image)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', sample_products)
-        
-        # Sample Promo Codes
-        sample_promos = [
-            ('WELCOME10', 10, 'active', 'no'),
-            ('SAVE50', 50, 'active', 'no'),
-            ('FIRST20', 20, 'active', 'no'),
-            ('NEWUSER15', 15, 'active', 'no'),
-            ('CHICKEN5', 5, 'active', 'no'),
-            ('MUTTON25', 25, 'active', 'yes'),
-            ('EXPIRED30', 30, 'inactive', 'no')
-        ]
-        
-        cursor.executemany('''
-            INSERT INTO promocodes (code, discount, status, used)
-            VALUES (?, ?, ?, ?)
-        ''', sample_promos)
-        
-        # Sample Orders (for realistic dashboard data)
-        sample_orders = [
-            ('AMC12345678', 'Rajesh', 'Kumar', '9876543210', 'rajesh@example.com', '123 MG Road', 'Mumbai', '400001', 'express', 'online', 'WELCOME10', '[{"name":"Premium Chicken Breast","price":450,"quantity":1,"weight":"1kg"}]', 440, 'delivered', '2024-01-15T10:30:00'),
-            ('AMC87654321', 'Priya', 'Sharma', '9876543211', 'priya@example.com', '456 Brigade Road', 'Bangalore', '560001', 'standard', 'cod', '', '[{"name":"Fresh Mutton Curry Cut","price":650,"quantity":1,"weight":"1kg"}]', 650, 'processing', '2024-01-16T14:20:00'),
-            ('AMC11223344', 'Amit', 'Singh', '9876543212', 'amit@example.com', '789 Park Street', 'Kolkata', '700001', 'express', 'online', 'SAVE50', '[{"name":"Chicken Biryani Cut","price":420,"quantity":2,"weight":"1kg"}]', 790, 'shipped', '2024-01-17T09:15:00'),
-            ('AMC55667788', 'Anita', 'Reddy', '9876543213', 'anita@example.com', '321 Anna Salai', 'Chennai', '600001', 'standard', 'online', '', '[{"name":"Mutton Leg Pieces","price":680,"quantity":1,"weight":"1kg"},{"name":"Chicken Wings","price":380,"quantity":1,"weight":"1kg"}]', 1060, 'delivered', '2024-01-18T16:45:00'),
-            ('AMC99887766', 'Vikram', 'Patel', '9876543214', 'vikram@example.com', '654 SG Highway', 'Ahmedabad', '380001', 'express', 'cod', 'FIRST20', '[{"name":"Premium Chicken Breast","price":450,"quantity":1,"weight":"500gm"}]', 210, 'processing', '2024-01-19T11:30:00'),
-            ('AMC44556677', 'Neha', 'Gupta', '9876543215', 'neha@example.com', '987 Sector 17', 'Chandigarh', '160001', 'standard', 'online', '', '[{"name":"Chicken Drumsticks","price":400,"quantity":2,"weight":"1kg"}]', 800, 'shipped', '2024-01-20T13:20:00'),
-            ('AMC33445566', 'Ravi', 'Mehta', '9876543216', 'ravi@example.com', '147 Civil Lines', 'Delhi', '110001', 'express', 'online', 'CHICKEN5', '[{"name":"Mutton Shoulder","price":700,"quantity":1,"weight":"1kg"}]', 695, 'delivered', '2024-01-21T15:10:00'),
-            ('AMC77889900', 'Sunita', 'Joshi', '9876543217', 'sunita@example.com', '258 FC Road', 'Pune', '411001', 'standard', 'cod', '', '[{"name":"Fresh Mutton Curry Cut","price":650,"quantity":1,"weight":"500gm"},{"name":"Chicken Wings","price":380,"quantity":1,"weight":"500gm"}]', 525, 'processing', '2024-01-22T12:45:00')
-        ]
-        
-        cursor.executemany('''
-            INSERT INTO orders (orderid, firstName, lastName, phoneNo, email, address, city, pincode, deliveryType, paymentMethod, promocode, items, total, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', sample_orders)
-        
-        print("✅ Sample data added successfully!")
-    
     conn.commit()
     conn.close()
-
 def run_server():
     # Initialize database with sample data
     init_database()
     
     # Get port from environment variable (Render requirement) or default to 5000
     port = int(os.environ.get('PORT', 5000))
-    server_address = ('0.0.0.0', port)  # Changed to 0.0.0.0 for Render
+    
+    server_address = ('0.0.0.0', port)  # Changed from '' to '0.0.0.0' for Render
     httpd = HTTPServer(server_address, AMCMartHandler)
     
     print("=" * 70)
     print("🛒 AMCMart API Server Started!")
     print("=" * 70)
-    print(f"🌐 Server running on port: {port}")
-    print(f"🏥 Health check: /api/health")
-    print(f"🌍 Environment: {'production' if os.environ.get('PORT') else 'development'}")
+    print(f"🌐 Server running on: http://0.0.0.0:{port}")
+    print("🏥 Health check: /api/health")
     print("")
     print("📦 PRODUCTS API:")
     print("   GET    /api/products          - Get all products")
@@ -1048,14 +999,9 @@ def run_server():
     print("   POST   /api/promo/validate    - Validate promo code")
     print("=" * 70)
     print("📊 Database: amcmart.db")
-    print("🎯 Sample Products: 8 products with realistic data")
-    print("🛒 Sample Orders: 8 orders with different statuses")
-    print("👥 Sample Customers: 8 unique customers")
-    print("🎟️ Sample Promo Codes: 7 codes with different statuses")
     print("=" * 70)
-    if not os.environ.get('PORT'):
-        print("Press Ctrl+C to stop the server")
-        print("=" * 70)
+    print("Press Ctrl+C to stop the server")
+    print("=" * 70)
     
     try:
         httpd.serve_forever()
