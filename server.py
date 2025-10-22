@@ -311,15 +311,18 @@ class DatabaseManager:
             print(f"❌ Fetch one error: {e}")
             return None
     
+    
     def insert_and_get_id(self, query, params=()):
         """Insert and return the ID"""
         try:
             with self.lock:
                 conn = self.get_connection()
                 if not conn:
+                    print("❌ No database connection")
                     return None
                 cursor = conn.cursor()
-                cursor.execute(query + " RETURNING id")
+                # ✅ IMPORTANT: Pass params as second argument!
+                cursor.execute(query + " RETURNING id", params)
                 result = cursor.fetchone()
                 conn.commit()
                 cursor.close()
@@ -328,6 +331,24 @@ class DatabaseManager:
         except Exception as e:
             print(f"❌ Insert error: {e}")
             return None
+
+    # def insert_and_get_id(self, query, params=()):
+    #     """Insert and return the ID"""
+    #     try:
+    #         with self.lock:
+    #             conn = self.get_connection()
+    #             if not conn:
+    #                 return None
+    #             cursor = conn.cursor()
+    #             cursor.execute(query + " RETURNING id")
+    #             result = cursor.fetchone()
+    #             conn.commit()
+    #             cursor.close()
+    #             conn.close()
+    #             return result[0] if result else None
+    #     except Exception as e:
+    #         print(f"❌ Insert error: {e}")
+    #         return None
 
 # Global database instance
 db = DatabaseManager()
@@ -616,4 +637,5 @@ def run_server(port=5000):
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     run_server(port)
+
 
