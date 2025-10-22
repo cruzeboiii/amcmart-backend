@@ -1,14 +1,171 @@
 import os
 import json
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
 import uuid
 import threading
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
-# Database file path
-DATABASE_FILE = 'amcmart.db'
+# ============ DATABASE CONFIGURATION ============
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://amcmart_user:rrrxkrA7UglkUn7XnyWen3A1AYQfEdyv@localhost/amcmart')
+
+# ============ EMAIL CONFIGURATION ============
+ADMIN_EMAIL = os.getenv('ADMIN_EMAIL', 'kabilesh4321@gmail.com')
+EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', 'Chennai@1232')
+SMTP_SERVER = 'smtp.gmail.com'
+SMTP_PORT = 587
+
+class EmailService:
+    """Handle email notifications"""
+    
+    @staticmethod
+    def send_order_notification(order_data):
+        """Send order notification email to admin"""
+        try:
+            # Create email message
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = f"🎉 New Order Received - {order_data['orderid']}"
+            msg['From'] = ADMIN_EMAIL
+            msg['To'] = ADMIN_EMAIL
+            
+            # Calculate total items
+            items_list = ""
+            try:
+                items = json.loads(order_data.get('items', '[]'))
+                for item in items:
+                    items_list += f"<li>{item.get('name')} ({item.get('weight')}) x {item.get('quantity')} = ₹{item.get('unitPrice') * item.get('quantity')}</li>"
+            except:
+                items_list = f"<li>{order_data.get('items')}</li>"
+            
+            # HTML email template
+            html = f"""
+            <html>
+                <head>
+                    <style>
+                        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                        .container {{ max-width: 600px; margin: 0 auto; background: #f9f9f9; padding: 20px; border-radius: 8px; }}
+                        .header {{ background: #d32f2f; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center; }}
+                        .header h2 {{ margin: 0; }}
+                        .content {{ background: white; padding: 20px; }}
+                        .section {{ margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee; }}
+                        .section h3 {{ color: #d32f2f; margin-top: 0; }}
+                        .info-row {{ display: flex; justify-content: space-between; margin: 8px 0; }}
+                        .label {{ font-weight: bold; color: #666; }}
+                        .value {{ text-align: right; }}
+                        .items-list {{ list-style: none; padding: 0; }}
+                        .items-list li {{ padding: 8px; background: #f5f5f5; margin: 5px 0; border-radius: 4px; }}
+                        .total {{ font-size: 1.3em; font-weight: bold; color: #d32f2f; text-align: right; padding: 15px 0; }}
+                        .status {{ display: inline-block; padding: 8px 12px; background: #fff3e0; color: #e65100; border-radius: 4px; font-weight: bold; }}
+                        .footer {{ text-align: center; color: #999; font-size: 0.9em; margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px; }}
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <h2>📦 New Order Received!</h2>
+                        </div>
+                        
+                        <div class="content">
+                            <div class="section">
+                                <h3>Order Information</h3>
+                                <div class="info-row">
+                                    <span class="label">Order ID:</span>
+                                    <span class="value"><strong>{order_data['orderid']}</strong></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Date & Time:</span>
+                                    <span class="value">{datetime.now().strftime('%d-%m-%Y %H:%M:%S')}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Status:</span>
+                                    <span class="value"><span class="status">PENDING</span></span>
+                                </div>
+                            </div>
+                            
+                            <div class="section">
+                                <h3>Customer Information</h3>
+                                <div class="info-row">
+                                    <span class="label">Name:</span>
+                                    <span class="value">{order_data.get('firstName')} {order_data.get('lastName')}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Email:</span>
+                                    <span class="value">{order_data.get('email')}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Phone:</span>
+                                    <span class="value">{order_data.get('phoneNo')}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">City:</span>
+                                    <span class="value">{order_data.get('city')}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="section">
+                                <h3>Delivery Address</h3>
+                                <div style="background: #f5f5f5; padding: 12px; border-radius: 4px;">
+                                    <p style="margin: 0;">{order_data.get('address')}</p>
+                                    <p style="margin: 8px 0 0 0;"><strong>{order_data.get('city')} - {order_data.get('pincode')}</strong></p>
+                                </div>
+                            </div>
+                            
+                            <div class="section">
+                                <h3>Order Items</h3>
+                                <ul class="items-list">
+                                    {items_list}
+                                </ul>
+                            </div>
+                            
+                            <div class="section">
+                                <h3>Order Summary</h3>
+                                <div class="info-row">
+                                    <span class="label">Delivery Type:</span>
+                                    <span class="value">{order_data.get('deliveryType', 'Standard')}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Payment Method:</span>
+                                    <span class="value">{order_data.get('paymentMethod', 'N/A')}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Promo Code:</span>
+                                    <span class="value">{order_data.get('promocode') or 'None'}</span>
+                                </div>
+                                <div class="total">
+                                    Total Amount: ₹{order_data.get('total', 0)}
+                                </div>
+                            </div>
+                            
+                            <div class="footer">
+                                <p>This is an automated email from AMCMart Admin Panel.</p>
+                                <p>Login to your admin panel to update order status: <a href="#">Admin Panel</a></p>
+                            </div>
+                        </div>
+                    </div>
+                </body>
+            </html>
+            """
+            
+            msg.attach(MIMEText(html, 'html'))
+            
+            # Send email
+            server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+            server.starttls()
+            server.login(ADMIN_EMAIL, EMAIL_PASSWORD)
+            server.send_message(msg)
+            server.quit()
+            
+            print(f"✅ Email sent to {ADMIN_EMAIL} for order {order_data['orderid']}")
+            return True
+        
+        except Exception as e:
+            print(f"❌ Email error: {e}")
+            return False
 
 class DatabaseManager:
     def __init__(self):
@@ -18,25 +175,18 @@ class DatabaseManager:
     def get_connection(self):
         """Get database connection"""
         try:
-            conn = sqlite3.connect(DATABASE_FILE)
-            conn.row_factory = sqlite3.Row
+            conn = psycopg2.connect(DATABASE_URL)
             return conn
         except Exception as e:
             print(f"❌ Connection error: {e}")
             return None
-    
-    def database_exists(self):
-        """Check if database file exists"""
-        exists = os.path.exists(DATABASE_FILE)
-        size = os.path.getsize(DATABASE_FILE) if exists else 0
-        return exists, size
     
     def init_database(self):
         """Initialize database and create tables"""
         try:
             conn = self.get_connection()
             if not conn:
-                print("❌ Failed to create database")
+                print("❌ Failed to connect to database")
                 return False
             
             cursor = conn.cursor()
@@ -44,12 +194,12 @@ class DatabaseManager:
             # Products table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS products (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    productname TEXT NOT NULL,
-                    category TEXT NOT NULL,
+                    id SERIAL PRIMARY KEY,
+                    productname VARCHAR(255) NOT NULL,
+                    category VARCHAR(100) NOT NULL,
                     price_1kg INTEGER,
                     price_500gm INTEGER,
-                    stock_status TEXT DEFAULT 'in-stock',
+                    stock_status VARCHAR(50) DEFAULT 'in-stock',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -57,21 +207,21 @@ class DatabaseManager:
             # Orders table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS orders (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    orderid TEXT UNIQUE NOT NULL,
-                    firstName TEXT,
-                    lastName TEXT,
-                    phoneNo TEXT,
-                    email TEXT,
+                    id SERIAL PRIMARY KEY,
+                    orderid VARCHAR(50) UNIQUE NOT NULL,
+                    firstName VARCHAR(100),
+                    lastName VARCHAR(100),
+                    phoneNo VARCHAR(20),
+                    email VARCHAR(100),
                     address TEXT,
-                    city TEXT,
-                    pincode TEXT,
-                    deliveryType TEXT,
-                    paymentMethod TEXT,
+                    city VARCHAR(100),
+                    pincode VARCHAR(10),
+                    deliveryType VARCHAR(50),
+                    paymentMethod VARCHAR(50),
                     items TEXT,
                     total INTEGER,
-                    promocode TEXT,
-                    status TEXT DEFAULT 'pending',
+                    promocode VARCHAR(50),
+                    status VARCHAR(50) DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -79,10 +229,10 @@ class DatabaseManager:
             # Promo codes table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS promocodes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    code TEXT UNIQUE NOT NULL,
+                    id SERIAL PRIMARY KEY,
+                    code VARCHAR(50) UNIQUE NOT NULL,
                     discount INTEGER,
-                    status TEXT DEFAULT 'active',
+                    status VARCHAR(50) DEFAULT 'active',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -90,21 +240,21 @@ class DatabaseManager:
             # Customers table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS customers (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    firstName TEXT,
-                    lastName TEXT,
-                    phoneNo TEXT,
-                    email TEXT,
-                    city TEXT,
+                    id SERIAL PRIMARY KEY,
+                    firstName VARCHAR(100),
+                    lastName VARCHAR(100),
+                    phoneNo VARCHAR(20),
+                    email VARCHAR(100),
+                    city VARCHAR(100),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
             conn.commit()
+            cursor.close()
             conn.close()
             
-            exists, size = self.database_exists()
-            print(f"✅ Database initialized: {DATABASE_FILE} ({size} bytes)")
+            print(f"✅ Database initialized successfully")
             return True
         
         except Exception as e:
@@ -121,10 +271,12 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute(query, params)
                 conn.commit()
-                return cursor
+                cursor.close()
+                conn.close()
+                return True
         except Exception as e:
             print(f"❌ Query error: {e}")
-            return None
+            return False
     
     def fetch_all(self, query, params=()):
         """Fetch all results"""
@@ -133,9 +285,10 @@ class DatabaseManager:
                 conn = self.get_connection()
                 if not conn:
                     return []
-                cursor = conn.cursor()
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
                 cursor.execute(query, params)
                 results = cursor.fetchall()
+                cursor.close()
                 conn.close()
                 return [dict(row) for row in results]
         except Exception as e:
@@ -149,35 +302,33 @@ class DatabaseManager:
                 conn = self.get_connection()
                 if not conn:
                     return None
-                cursor = conn.cursor()
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
                 cursor.execute(query, params)
                 result = cursor.fetchone()
+                cursor.close()
                 conn.close()
                 return dict(result) if result else None
         except Exception as e:
             print(f"❌ Fetch one error: {e}")
             return None
     
-    def get_stats(self):
-        """Get database statistics"""
-        exists, size = self.database_exists()
-        product_count = 0
-        order_count = 0
-        
-        if exists:
-            products = self.fetch_all('SELECT COUNT(*) as count FROM products')
-            orders = self.fetch_all('SELECT COUNT(*) as count FROM orders')
-            
-            product_count = products[0].get('count', 0) if products else 0
-            order_count = orders[0].get('count', 0) if orders else 0
-        
-        return {
-            'exists': exists,
-            'size_bytes': size,
-            'size_mb': round(size / (1024 * 1024), 2) if size > 0 else 0,
-            'products': product_count,
-            'orders': order_count
-        }
+    def insert_and_get_id(self, query, params=()):
+        """Insert and return the ID"""
+        try:
+            with self.lock:
+                conn = self.get_connection()
+                if not conn:
+                    return None
+                cursor = conn.cursor()
+                cursor.execute(query + " RETURNING id")
+                result = cursor.fetchone()
+                conn.commit()
+                cursor.close()
+                conn.close()
+                return result[0] if result else None
+        except Exception as e:
+            print(f"❌ Insert error: {e}")
+            return None
 
 # Global database instance
 db = DatabaseManager()
@@ -198,7 +349,6 @@ class APIHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         
         if path == '/api/health':
-            stats = db.get_stats()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self._set_cors_headers()
@@ -207,12 +357,8 @@ class APIHandler(BaseHTTPRequestHandler):
                 "success": True,
                 "message": "AMCMart API is running!",
                 "timestamp": datetime.now().isoformat(),
-                "database": "SQLite",
-                "database_file": DATABASE_FILE,
-                "database_exists": stats['exists'],
-                "database_size_mb": stats['size_mb'],
-                "products_count": stats['products'],
-                "orders_count": stats['orders'],
+                "database": "PostgreSQL",
+                "email_configured": bool(ADMIN_EMAIL and EMAIL_PASSWORD),
                 "queue_size": 0
             }
             self.wfile.write(json.dumps(response, default=str).encode())
@@ -259,7 +405,6 @@ class APIHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(response, default=str).encode())
         
         elif path == '/api/dashboard/stats':
-            stats = db.get_stats()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self._set_cors_headers()
@@ -267,16 +412,17 @@ class APIHandler(BaseHTTPRequestHandler):
             
             orders = db.fetch_all('SELECT * FROM orders')
             total_revenue = sum(int(o.get('total', 0)) for o in orders)
+            pending_orders = db.fetch_all('SELECT * FROM orders WHERE status = %s', ('pending',))
+            customers = db.fetch_all('SELECT DISTINCT phoneNo FROM orders')
             
             response = {
                 "success": True,
                 "data": {
-                    "total_orders": stats['orders'],
+                    "total_products": len(db.fetch_all('SELECT * FROM products')),
+                    "total_orders": len(orders),
                     "total_revenue": total_revenue,
-                    "total_customers": len(db.fetch_all('SELECT DISTINCT phoneNo FROM orders')),
-                    "pending_orders": len(db.fetch_all('SELECT * FROM orders WHERE status = ?', ('pending',))),
-                    "database_size_mb": stats['size_mb'],
-                    "database_exists": stats['exists']
+                    "total_customers": len(customers),
+                    "pending_orders": len(pending_orders)
                 }
             }
             self.wfile.write(json.dumps(response, default=str).encode())
@@ -306,14 +452,12 @@ class APIHandler(BaseHTTPRequestHandler):
                 price_500gm = data.get('price_500gm')
                 stock_status = data.get('stock_status', 'in-stock')
                 
-                cursor = db.execute_query(
-                    'INSERT INTO products (productname, category, price_1kg, price_500gm, stock_status) VALUES (?, ?, ?, ?, ?)',
+                product_id = db.insert_and_get_id(
+                    'INSERT INTO products (productname, category, price_1kg, price_500gm, stock_status) VALUES (%s, %s, %s, %s, %s)',
                     (productname, category, price_1kg, price_500gm, stock_status)
                 )
                 
-                if cursor:
-                    product_id = cursor.lastrowid
-                    
+                if product_id:
                     self.send_response(201)
                     self.send_header('Content-Type', 'application/json')
                     self._set_cors_headers()
@@ -341,30 +485,43 @@ class APIHandler(BaseHTTPRequestHandler):
             try:
                 order_id = f"AMC{uuid.uuid4().hex[:8].upper()}"
                 
-                cursor = db.execute_query(
-                    '''INSERT INTO orders 
+                query = '''INSERT INTO orders 
                     (orderid, firstName, lastName, phoneNo, email, address, city, pincode, 
                      deliveryType, paymentMethod, items, total, promocode, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                    (
-                        order_id,
-                        data.get('firstName'),
-                        data.get('lastName'),
-                        data.get('phoneNo'),
-                        data.get('email'),
-                        data.get('address'),
-                        data.get('city'),
-                        data.get('pincode'),
-                        data.get('deliveryType'),
-                        data.get('paymentMethod'),
-                        data.get('items'),
-                        data.get('total'),
-                        data.get('promocode', ''),
-                        'pending'
-                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'''
+                
+                params = (
+                    order_id,
+                    data.get('firstName'),
+                    data.get('lastName'),
+                    data.get('phoneNo'),
+                    data.get('email'),
+                    data.get('address'),
+                    data.get('city'),
+                    data.get('pincode'),
+                    data.get('deliveryType'),
+                    data.get('paymentMethod'),
+                    data.get('items'),
+                    data.get('total'),
+                    data.get('promocode', ''),
                 )
                 
-                if cursor:
+                success = db.execute_query(query, params)
+                
+                if success:
+                    # Send email notification to admin
+                    email_data = data.copy()
+                    email_data['orderid'] = order_id
+                    
+                    # Send email asynchronously
+                    import threading
+                    email_thread = threading.Thread(
+                        target=EmailService.send_order_notification,
+                        args=(email_data,)
+                    )
+                    email_thread.daemon = True
+                    email_thread.start()
+                    
                     self.send_response(201)
                     self.send_header('Content-Type', 'application/json')
                     self._set_cors_headers()
@@ -391,12 +548,12 @@ class APIHandler(BaseHTTPRequestHandler):
         
         elif path == '/api/promocodes':
             try:
-                cursor = db.execute_query(
-                    'INSERT INTO promocodes (code, discount, status) VALUES (?, ?, ?)',
+                product_id = db.insert_and_get_id(
+                    'INSERT INTO promocodes (code, discount, status) VALUES (%s, %s, %s)',
                     (data.get('code'), data.get('discount'), data.get('status', 'active'))
                 )
                 
-                if cursor:
+                if product_id:
                     self.send_response(201)
                     self.send_header('Content-Type', 'application/json')
                     self._set_cors_headers()
@@ -418,7 +575,7 @@ class APIHandler(BaseHTTPRequestHandler):
         elif path == '/api/promo/validate':
             try:
                 code = data.get('code')
-                promo = db.fetch_one('SELECT * FROM promocodes WHERE code = ? AND status = ?', (code, 'active'))
+                promo = db.fetch_one('SELECT * FROM promocodes WHERE code = %s AND status = %s', (code, 'active'))
                 
                 if promo:
                     self.send_response(200)
@@ -453,7 +610,8 @@ def run_server(port=5000):
     httpd = HTTPServer(server_address, APIHandler)
     print(f'🚀 Server running on port {port}')
     print(f'📊 API Base URL: http://localhost:{port}/api')
-    print(f'💾 Database: {DATABASE_FILE}')
+    print(f'💾 Database: PostgreSQL')
+    print(f'📧 Email: {"Configured" if ADMIN_EMAIL and EMAIL_PASSWORD else "Not configured"}')
     httpd.serve_forever()
 
 if __name__ == '__main__':
