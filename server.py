@@ -13,11 +13,23 @@ from email.mime.multipart import MIMEMultipart
 
 # ============ DATABASE CONFIGURATION ============
 DATABASE_URL = os.getenv('DATABASE_URL')
+
+# Verify DATABASE_URL is set
+if not DATABASE_URL:
+    print("❌ ERROR: DATABASE_URL environment variable is not set!")
+else:
+    print(f"✅ Database URL configured: {DATABASE_URL[:50]}...")
+
 # ============ EMAIL CONFIGURATION ============
 ADMIN_EMAIL = os.getenv('ADMIN_EMAIL')
 EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
 SMTP_SERVER = 'smtp.gmail.com'
 SMTP_PORT = 587
+
+if ADMIN_EMAIL and EMAIL_PASSWORD:
+    print(f"✅ Email configured: {ADMIN_EMAIL}")
+else:
+    print("⚠️ Email not configured")
 
 class EmailService:
     """Handle email notifications"""
@@ -26,13 +38,11 @@ class EmailService:
     def send_order_notification(order_data):
         """Send order notification email to admin"""
         try:
-            # Create email message
             msg = MIMEMultipart('alternative')
             msg['Subject'] = f"🎉 New Order Received - {order_data['orderid']}"
             msg['From'] = ADMIN_EMAIL
             msg['To'] = ADMIN_EMAIL
             
-            # Calculate total items
             items_list = ""
             try:
                 items = json.loads(order_data.get('items', '[]'))
@@ -41,7 +51,6 @@ class EmailService:
             except:
                 items_list = f"<li>{order_data.get('items')}</li>"
             
-            # HTML email template
             html = f"""
             <html>
                 <head>
@@ -152,7 +161,6 @@ class EmailService:
             
             msg.attach(MIMEText(html, 'html'))
             
-            # Send email
             server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
             server.starttls()
             server.login(ADMIN_EMAIL, EMAIL_PASSWORD)
@@ -190,7 +198,6 @@ class DatabaseManager:
             
             cursor = conn.cursor()
             
-            # Products table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS products (
                     id SERIAL PRIMARY KEY,
@@ -203,7 +210,6 @@ class DatabaseManager:
                 )
             ''')
             
-            # Orders table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS orders (
                     id SERIAL PRIMARY KEY,
@@ -225,7 +231,6 @@ class DatabaseManager:
                 )
             ''')
             
-            # Promo codes table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS promocodes (
                     id SERIAL PRIMARY KEY,
@@ -236,7 +241,6 @@ class DatabaseManager:
                 )
             ''')
             
-            # Customers table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS customers (
                     id SERIAL PRIMARY KEY,
@@ -311,49 +315,37 @@ class DatabaseManager:
             print(f"❌ Fetch one error: {e}")
             return None
     
-    
     def insert_and_get_id(self, query, params=()):
         """Insert and return the ID"""
         try:
             with self.lock:
                 conn = self.get_connection()
                 if not conn:
-                    print("❌ No database connection")
+                    print("❌ No database connection in insert_and_get_id")
                     return None
                 cursor = conn.cursor()
-                # ✅ IMPORTANT: Pass params as second argument!
+                print(f"🔍 Executing query: {query[:80]}...")  # Debug log
+                print(f"🔍 With params: {params}")  # Debug log
                 cursor.execute(query + " RETURNING id", params)
                 result = cursor.fetchone()
                 conn.commit()
                 cursor.close()
                 conn.close()
+                print(f"✅ Insert successful, result: {result}")  # Debug log
                 return result[0] if result else None
         except Exception as e:
             print(f"❌ Insert error: {e}")
+            import traceback
+            traceback.print_exc()  # Print full stack trace
             return None
 
-    # def insert_and_get_id(self, query, params=()):
-    #     """Insert and return the ID"""
-    #     try:
-    #         with self.lock:
-    #             conn = self.get_connection()
-    #             if not conn:
-    #                 return None
-    #             cursor = conn.cursor()
-    #             cursor.execute(query + " RETURNING id")
-    #             result = cursor.fetchone()
-    #             conn.commit()
-    #             cursor.close()
-    #             conn.close()
-    #             return result[0] if result else None
-    #     except Exception as e:
-    #         print(f"❌ Insert error: {e}")
-    #         return None
-
-# Global database instance
 db = DatabaseManager()
 
 class APIHandler(BaseHTTPRequestHandler):
+    
+    def log_message(self, format, *args):
+        """Suppress default logging"""
+        pass
     
     def _set_cors_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -365,10 +357,24 @@ class APIHandler(BaseHTTPRequestHandler):
         self._set_cors_headers()
         self.end_headers()
     
+    def do_HEAD(self):
+        """Handle HEAD requests (suppress 501 error)"""
+        self.send_response(200)
+        self._set_cors_headers()
+        self.end_headers()
+    
     def do_GET(self):
         path = urlparse(self.path).path
         
-        if path == '/api/health':
+        if path == '/' or path == '':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self._set_cors_headers()
+            self.end_headers()
+            response = {"success": True, "message": "AMCMart API - Use /api endpoints"}
+            self.wfile.write(json.dumps(response).encode())
+        
+        elif path == '/api/health':
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self._set_cors_headers()
@@ -379,7 +385,6 @@ class APIHandler(BaseHTTPRequestHandler):
                 "timestamp": datetime.now().isoformat(),
                 "database": "PostgreSQL",
                 "email_configured": bool(ADMIN_EMAIL and EMAIL_PASSWORD),
-                "queue_size": 0
             }
             self.wfile.write(json.dumps(response, default=str).encode())
         
@@ -459,18 +464,32 @@ class APIHandler(BaseHTTPRequestHandler):
         content_length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(content_length).decode('utf-8')
         
+        print(f"📨 POST {path}")
+        print(f"📦 Body: {body[:200]}")
+        
         try:
             data = json.loads(body) if body else {}
-        except:
-            data = {}
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON decode error: {e}")
+            self.send_response(400)
+            self.send_header('Content-Type', 'application/json')
+            self._set_cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": False, "error": f"Invalid JSON: {str(e)}"}).encode())
+            return
         
         if path == '/api/products':
             try:
+                print(f"🔍 Creating product with data: {data}")
+                
                 productname = data.get('productname')
                 category = data.get('category')
                 price_1kg = data.get('price_1kg')
                 price_500gm = data.get('price_500gm')
                 stock_status = data.get('stock_status', 'in-stock')
+                
+                if not all([productname, category, price_1kg, price_500gm]):
+                    raise ValueError("Missing required fields: productname, category, price_1kg, price_500gm")
                 
                 product_id = db.insert_and_get_id(
                     'INSERT INTO products (productname, category, price_1kg, price_500gm, stock_status) VALUES (%s, %s, %s, %s, %s)',
@@ -492,9 +511,12 @@ class APIHandler(BaseHTTPRequestHandler):
                     print(f"✅ Product created: {productname} (ID: {product_id})")
                     self.wfile.write(json.dumps(response).encode())
                 else:
-                    raise Exception("Failed to insert product")
+                    raise ValueError("insert_and_get_id returned None")
             
             except Exception as e:
+                print(f"❌ Product creation error: {e}")
+                import traceback
+                traceback.print_exc()
                 self.send_response(400)
                 self.send_header('Content-Type', 'application/json')
                 self._set_cors_headers()
@@ -503,6 +525,8 @@ class APIHandler(BaseHTTPRequestHandler):
         
         elif path == '/api/orders':
             try:
+                print(f"🔍 Creating order with data: {data}")
+                
                 order_id = f"AMC{uuid.uuid4().hex[:8].upper()}"
                 
                 query = '''INSERT INTO orders 
@@ -529,12 +553,9 @@ class APIHandler(BaseHTTPRequestHandler):
                 success = db.execute_query(query, params)
                 
                 if success:
-                    # Send email notification to admin
                     email_data = data.copy()
                     email_data['orderid'] = order_id
                     
-                    # Send email asynchronously
-                    import threading
                     email_thread = threading.Thread(
                         target=EmailService.send_order_notification,
                         args=(email_data,)
@@ -560,6 +581,9 @@ class APIHandler(BaseHTTPRequestHandler):
                     raise Exception("Failed to create order")
             
             except Exception as e:
+                print(f"❌ Order creation error: {e}")
+                import traceback
+                traceback.print_exc()
                 self.send_response(400)
                 self.send_header('Content-Type', 'application/json')
                 self._set_cors_headers()
@@ -568,6 +592,8 @@ class APIHandler(BaseHTTPRequestHandler):
         
         elif path == '/api/promocodes':
             try:
+                print(f"🔍 Creating promo code with data: {data}")
+                
                 product_id = db.insert_and_get_id(
                     'INSERT INTO promocodes (code, discount, status) VALUES (%s, %s, %s)',
                     (data.get('code'), data.get('discount'), data.get('status', 'active'))
@@ -584,8 +610,13 @@ class APIHandler(BaseHTTPRequestHandler):
                     }
                     print(f"✅ Promo code created: {data.get('code')}")
                     self.wfile.write(json.dumps(response).encode())
+                else:
+                    raise ValueError("insert_and_get_id returned None")
             
             except Exception as e:
+                print(f"❌ Promo code creation error: {e}")
+                import traceback
+                traceback.print_exc()
                 self.send_response(400)
                 self.send_header('Content-Type', 'application/json')
                 self._set_cors_headers()
@@ -619,6 +650,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"success": False, "error": "Invalid promo code"}).encode())
             
             except Exception as e:
+                print(f"❌ Promo validation error: {e}")
                 self.send_response(400)
                 self.send_header('Content-Type', 'application/json')
                 self._set_cors_headers()
@@ -628,14 +660,14 @@ class APIHandler(BaseHTTPRequestHandler):
 def run_server(port=5000):
     server_address = ('', port)
     httpd = HTTPServer(server_address, APIHandler)
-    print(f'🚀 Server running on port {port}')
-    print(f'📊 API Base URL: http://localhost:{port}/api')
+    print(f'\n🚀 AMCMart API Server Starting...')
+    print(f'🔧 Port: {port}')
+    print(f'📊 API Base URL: https://amcmart-api.onrender.com/api')
     print(f'💾 Database: PostgreSQL')
-    print(f'📧 Email: {"Configured" if ADMIN_EMAIL and EMAIL_PASSWORD else "Not configured"}')
+    print(f'📧 Email: {"✅ Configured" if ADMIN_EMAIL and EMAIL_PASSWORD else "⚠️ Not configured"}')
+    print(f'\n✅ Server ready to accept requests\n')
     httpd.serve_forever()
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     run_server(port)
-
-
