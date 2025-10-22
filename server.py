@@ -187,17 +187,27 @@ class DatabaseManager:
         except Exception as e:
             print(f"❌ Connection error: {e}")
             return None
-    
+
     def init_database(self):
         """Initialize database and create tables"""
         try:
+            print("\n🔍 Testing database connection...")
             conn = self.get_connection()
             if not conn:
-                print("❌ Failed to connect to database")
+                print("❌ FATAL: Cannot connect to database!")
+                print(f"   DATABASE_URL: {DATABASE_URL[:80] if DATABASE_URL else 'NOT SET'}")
                 return False
+            
+            print("✅ Database connection successful")
             
             cursor = conn.cursor()
             
+            # Test query
+            cursor.execute("SELECT 1")
+            test_result = cursor.fetchone()
+            print(f"✅ Database test query returned: {test_result}")
+            
+            # Products table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS products (
                     id SERIAL PRIMARY KEY,
@@ -209,7 +219,9 @@ class DatabaseManager:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            print("✅ Products table created/verified")
             
+            # Orders table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS orders (
                     id SERIAL PRIMARY KEY,
@@ -230,7 +242,9 @@ class DatabaseManager:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            print("✅ Orders table created/verified")
             
+            # Promo codes table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS promocodes (
                     id SERIAL PRIMARY KEY,
@@ -240,7 +254,9 @@ class DatabaseManager:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            print("✅ Promo codes table created/verified")
             
+            # Customers table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS customers (
                     id SERIAL PRIMARY KEY,
@@ -252,17 +268,96 @@ class DatabaseManager:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            print("✅ Customers table created/verified")
             
             conn.commit()
             cursor.close()
             conn.close()
             
-            print(f"✅ Database initialized successfully")
+            print(f"✅ Database initialized successfully\n")
             return True
         
         except Exception as e:
             print(f"❌ Database initialization error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
+    
+    # def init_database(self):
+    #     """Initialize database and create tables"""
+    #     try:
+    #         conn = self.get_connection()
+    #         if not conn:
+    #             print("❌ Failed to connect to database")
+    #             return False
+            
+    #         cursor = conn.cursor()
+            
+    #         cursor.execute('''
+    #             CREATE TABLE IF NOT EXISTS products (
+    #                 id SERIAL PRIMARY KEY,
+    #                 productname VARCHAR(255) NOT NULL,
+    #                 category VARCHAR(100) NOT NULL,
+    #                 price_1kg INTEGER,
+    #                 price_500gm INTEGER,
+    #                 stock_status VARCHAR(50) DEFAULT 'in-stock',
+    #                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    #             )
+    #         ''')
+            
+    #         cursor.execute('''
+    #             CREATE TABLE IF NOT EXISTS orders (
+    #                 id SERIAL PRIMARY KEY,
+    #                 orderid VARCHAR(50) UNIQUE NOT NULL,
+    #                 firstName VARCHAR(100),
+    #                 lastName VARCHAR(100),
+    #                 phoneNo VARCHAR(20),
+    #                 email VARCHAR(100),
+    #                 address TEXT,
+    #                 city VARCHAR(100),
+    #                 pincode VARCHAR(10),
+    #                 deliveryType VARCHAR(50),
+    #                 paymentMethod VARCHAR(50),
+    #                 items TEXT,
+    #                 total INTEGER,
+    #                 promocode VARCHAR(50),
+    #                 status VARCHAR(50) DEFAULT 'pending',
+    #                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    #             )
+    #         ''')
+            
+    #         cursor.execute('''
+    #             CREATE TABLE IF NOT EXISTS promocodes (
+    #                 id SERIAL PRIMARY KEY,
+    #                 code VARCHAR(50) UNIQUE NOT NULL,
+    #                 discount INTEGER,
+    #                 status VARCHAR(50) DEFAULT 'active',
+    #                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    #             )
+    #         ''')
+            
+    #         cursor.execute('''
+    #             CREATE TABLE IF NOT EXISTS customers (
+    #                 id SERIAL PRIMARY KEY,
+    #                 firstName VARCHAR(100),
+    #                 lastName VARCHAR(100),
+    #                 phoneNo VARCHAR(20),
+    #                 email VARCHAR(100),
+    #                 city VARCHAR(100),
+    #                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    #             )
+    #         ''')
+            
+    #         conn.commit()
+    #         cursor.close()
+    #         conn.close()
+            
+    #         print(f"✅ Database initialized successfully")
+    #         return True
+        
+    #     except Exception as e:
+    #         print(f"❌ Database initialization error: {e}")
+    #         return False
     
     def execute_query(self, query, params=()):
         """Execute query with thread safety"""
@@ -314,30 +409,89 @@ class DatabaseManager:
         except Exception as e:
             print(f"❌ Fetch one error: {e}")
             return None
-    
+
     def insert_and_get_id(self, query, params=()):
         """Insert and return the ID"""
         try:
             with self.lock:
+                print(f"\n🔍 insert_and_get_id called")
+                print(f"   Query: {query}")
+                print(f"   Params: {params}")
+                
                 conn = self.get_connection()
                 if not conn:
-                    print("❌ No database connection in insert_and_get_id")
+                    print("❌ No database connection!")
                     return None
+                
+                print("✅ Database connection successful")
+                
                 cursor = conn.cursor()
-                print(f"🔍 Executing query: {query[:80]}...")  # Debug log
-                print(f"🔍 With params: {params}")  # Debug log
-                cursor.execute(query + " RETURNING id", params)
+                print(f"✅ Cursor created")
+                
+                full_query = query + " RETURNING id"
+                print(f"📝 Full query: {full_query}")
+                
+                # Execute the query
+                cursor.execute(full_query, params)
+                print(f"✅ Query executed successfully")
+                
+                # Fetch the result
                 result = cursor.fetchone()
+                print(f"📊 Fetch result: {result}")
+                print(f"   Result type: {type(result)}")
+                
+                # Check if result is None
+                if result is None:
+                    print("❌ ERROR: cursor.fetchone() returned None!")
+                    print("   This means the INSERT may have failed")
+                    # Get the rowcount to see if anything was inserted
+                    print(f"   Rows affected: {cursor.rowcount}")
+                    cursor.close()
+                    conn.close()
+                    return None
+                
+                # Commit the transaction
                 conn.commit()
+                print(f"✅ Transaction committed")
+                
                 cursor.close()
                 conn.close()
-                print(f"✅ Insert successful, result: {result}")  # Debug log
-                return result[0] if result else None
+                print(f"✅ Connection closed")
+                
+                final_id = result[0] if result else None
+                print(f"✅ Returning ID: {final_id}\n")
+                return final_id
+        
         except Exception as e:
-            print(f"❌ Insert error: {e}")
+            print(f"\n❌ insert_and_get_id EXCEPTION: {e}")
             import traceback
-            traceback.print_exc()  # Print full stack trace
+            traceback.print_exc()
+            print()
             return None
+    
+    # def insert_and_get_id(self, query, params=()):
+    #     """Insert and return the ID"""
+    #     try:
+    #         with self.lock:
+    #             conn = self.get_connection()
+    #             if not conn:
+    #                 print("❌ No database connection in insert_and_get_id")
+    #                 return None
+    #             cursor = conn.cursor()
+    #             print(f"🔍 Executing query: {query[:80]}...")  # Debug log
+    #             print(f"🔍 With params: {params}")  # Debug log
+    #             cursor.execute(query + " RETURNING id", params)
+    #             result = cursor.fetchone()
+    #             conn.commit()
+    #             cursor.close()
+    #             conn.close()
+    #             print(f"✅ Insert successful, result: {result}")  # Debug log
+    #             return result[0] if result else None
+    #     except Exception as e:
+    #         print(f"❌ Insert error: {e}")
+    #         import traceback
+    #         traceback.print_exc()  # Print full stack trace
+    #         return None
 
 db = DatabaseManager()
 
@@ -373,8 +527,16 @@ class APIHandler(BaseHTTPRequestHandler):
             self.end_headers()
             response = {"success": True, "message": "AMCMart API - Use /api endpoints"}
             self.wfile.write(json.dumps(response).encode())
-        
+
         elif path == '/api/health':
+            print(f"\n🔍 Health check requested")
+            
+            # Test database connection
+            test_conn = db.get_connection()
+            db_status = "✅ Connected" if test_conn else "❌ Failed"
+            if test_conn:
+                test_conn.close()
+            
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self._set_cors_headers()
@@ -383,10 +545,24 @@ class APIHandler(BaseHTTPRequestHandler):
                 "success": True,
                 "message": "AMCMart API is running!",
                 "timestamp": datetime.now().isoformat(),
-                "database": "PostgreSQL",
+                "database": db_status,
                 "email_configured": bool(ADMIN_EMAIL and EMAIL_PASSWORD),
             }
             self.wfile.write(json.dumps(response, default=str).encode())
+        
+        # elif path == '/api/health':
+        #     self.send_response(200)
+        #     self.send_header('Content-Type', 'application/json')
+        #     self._set_cors_headers()
+        #     self.end_headers()
+        #     response = {
+        #         "success": True,
+        #         "message": "AMCMart API is running!",
+        #         "timestamp": datetime.now().isoformat(),
+        #         "database": "PostgreSQL",
+        #         "email_configured": bool(ADMIN_EMAIL and EMAIL_PASSWORD),
+        #     }
+        #     self.wfile.write(json.dumps(response, default=str).encode())
         
         elif path == '/api/products':
             products = db.fetch_all('SELECT * FROM products ORDER BY id DESC')
@@ -671,3 +847,4 @@ def run_server(port=5000):
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     run_server(port)
+
