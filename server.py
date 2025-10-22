@@ -359,23 +359,64 @@ class DatabaseManager:
     #         print(f"❌ Database initialization error: {e}")
     #         return False
     
+    # def execute_query(self, query, params=()):
+    #     """Execute query with thread safety"""
+    #     try:
+    #         with self.lock:
+    #             conn = self.get_connection()
+    #             if not conn:
+    #                 return None
+    #             cursor = conn.cursor()
+    #             cursor.execute(query, params)
+    #             conn.commit()
+    #             cursor.close()
+    #             conn.close()
+    #             return True
+    #     except Exception as e:
+    #         print(f"❌ Query error: {e}")
+    #         return False
+
+
     def execute_query(self, query, params=()):
         """Execute query with thread safety"""
         try:
             with self.lock:
+                print(f"\n🔍 execute_query called")
+                print(f"   Query: {query[:100]}...")
+                print(f"   Params: {params}")
+                
                 conn = self.get_connection()
                 if not conn:
-                    return None
+                    print("❌ No database connection!")
+                    return False
+                
+                print("✅ Database connection successful")
+                
                 cursor = conn.cursor()
+                print("✅ Cursor created")
+                
+                # Execute query
                 cursor.execute(query, params)
+                print(f"✅ Query executed")
+                print(f"   Rows affected: {cursor.rowcount}")
+                
+                # Commit
                 conn.commit()
+                print("✅ Transaction committed")
+                
                 cursor.close()
                 conn.close()
+                print("✅ Connection closed")
+                print(f"✅ execute_query successful\n")
+                
                 return True
+        
         except Exception as e:
-            print(f"❌ Query error: {e}")
+            print(f"\n❌ execute_query EXCEPTION: {e}")
+            import traceback
+            traceback.print_exc()
+            print()
             return False
-    
     def fetch_all(self, query, params=()):
         """Fetch all results"""
         try:
@@ -577,18 +618,120 @@ class APIHandler(BaseHTTPRequestHandler):
             }
             self.wfile.write(json.dumps(response, default=str).encode())
         
+        # elif path == '/api/orders':
+        #     orders = db.fetch_all('SELECT * FROM orders ORDER BY created_at DESC')
+        #     self.send_response(200)
+        #     self.send_header('Content-Type', 'application/json')
+        #     self._set_cors_headers()
+        #     self.end_headers()
+        #     response = {
+        #         "success": True,
+        #         "data": orders,
+        #         "count": len(orders)
+        #     }
+        #     self.wfile.write(json.dumps(response, default=str).encode())
         elif path == '/api/orders':
-            orders = db.fetch_all('SELECT * FROM orders ORDER BY created_at DESC')
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self._set_cors_headers()
-            self.end_headers()
-            response = {
-                "success": True,
-                "data": orders,
-                "count": len(orders)
-            }
-            self.wfile.write(json.dumps(response, default=str).encode())
+            try:
+                print(f"\n📨 Order creation started")
+                print(f"🔍 Data received: {data}")
+                
+                order_id = f"AMC{uuid.uuid4().hex[:8].upper()}"
+                print(f"✅ Order ID generated: {order_id}")
+                
+                # Validate required fields
+                required_fields = ['firstName', 'lastName', 'phoneNo', 'email', 'address', 'city', 'pincode', 'deliveryType', 'paymentMethod', 'items', 'total']
+                missing_fields = [field for field in required_fields if not data.get(field)]
+                
+                if missing_fields:
+                    raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+                
+                print(f"✅ All required fields present")
+                
+                query = '''INSERT INTO orders 
+                    (orderid, firstName, lastName, phoneNo, email, address, city, pincode, 
+                     deliveryType, paymentMethod, items, total, promocode, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'''
+                
+                params = (
+                    order_id,
+                    data.get('firstName'),
+                    data.get('lastName'),
+                    data.get('phoneNo'),
+                    data.get('email'),
+                    data.get('address'),
+                    data.get('city'),
+                    data.get('pincode'),
+                    data.get('deliveryType'),
+                    data.get('paymentMethod'),
+                    data.get('items'),
+                    data.get('total'),
+                    data.get('promocode', ''),
+                    'pending',
+                )
+                
+                print(f"📝 Query params:")
+                print(f"   1. orderid: {params[0]}")
+                print(f"   2. firstName: {params[1]}")
+                print(f"   3. lastName: {params[2]}")
+                print(f"   4. phoneNo: {params[3]}")
+                print(f"   5. email: {params[4]}")
+                print(f"   6. address: {params[5]}")
+                print(f"   7. city: {params[6]}")
+                print(f"   8. pincode: {params[7]}")
+                print(f"   9. deliveryType: {params[8]}")
+                print(f"   10. paymentMethod: {params[9]}")
+                print(f"   11. items: {params[10][:50]}..." if isinstance(params[10], str) else f"   11. items: {params[10]}")
+                print(f"   12. total: {params[11]}")
+                print(f"   13. promocode: {params[12]}")
+                print(f"   14. status: {params[13]}")
+                
+                success = db.execute_query(query, params)
+                print(f"🔍 execute_query returned: {success}")
+                
+                if success:
+                    print(f"✅ Order inserted successfully into database")
+                    
+                    # Send email notification to admin
+                    email_data = data.copy()
+                    email_data['orderid'] = order_id
+                    
+                    # Send email asynchronously
+                    email_thread = threading.Thread(
+                        target=EmailService.send_order_notification,
+                        args=(email_data,)
+                    )
+                    email_thread.daemon = True
+                    email_thread.start()
+                    print(f"📧 Email thread started")
+                    
+                    self.send_response(201)
+                    self.send_header('Content-Type', 'application/json')
+                    self._set_cors_headers()
+                    self.end_headers()
+                    response = {
+                        "success": True,
+                        "data": {
+                            "order_id": order_id,
+                            "message": "Order placed successfully!",
+                            "customer_name": f"{data.get('firstName')} {data.get('lastName')}"
+                        }
+                    }
+                    print(f"✅ Order created: {order_id}\n")
+                    self.wfile.write(json.dumps(response).encode())
+                else:
+                    print(f"❌ execute_query returned False")
+                    raise Exception("Failed to create order - execute_query returned False")
+            
+            except Exception as e:
+                print(f"\n❌ Order creation error: {e}")
+                import traceback
+                traceback.print_exc()
+                print()
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self._set_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
         
         elif path == '/api/customers':
             customers = db.fetch_all(
@@ -847,4 +990,5 @@ def run_server(port=5000):
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     run_server(port)
+
 
