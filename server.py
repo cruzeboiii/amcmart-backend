@@ -12,11 +12,10 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # ============ DATABASE CONFIGURATION ============
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://amcmart_user:rrrxkrA7UglkUn7XnyWen3A1AYQfEdyv@localhost/amcmart')
-
+DATABASE_URL = os.getenv('DATABASE_URL')
 # ============ EMAIL CONFIGURATION ============
-ADMIN_EMAIL = os.getenv('ADMIN_EMAIL', 'kabilesh4321@gmail.com')
-EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', 'Chennai@1232')
+ADMIN_EMAIL = os.getenv('ADMIN_EMAIL')
+EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
 SMTP_SERVER = 'smtp.gmail.com'
 SMTP_PORT = 587
 
@@ -617,3 +616,4 @@ def run_server(port=5000):
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     run_server(port)
+
