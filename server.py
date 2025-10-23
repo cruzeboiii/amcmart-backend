@@ -10,6 +10,8 @@ import threading
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 
 # ============ DATABASE CONFIGURATION ============
 DATABASE_URL = os.getenv('DATABASE_URL')
@@ -29,7 +31,179 @@ if ADMIN_EMAIL and EMAIL_PASSWORD:
     print(f"✅ Email configured: {ADMIN_EMAIL}")
 else:
     print("⚠️ Email not configured")
-
+class EmailService:
+    """Handle email notifications using SendGrid"""
+    
+    @staticmethod
+    def send_order_notification(order_data):
+        """Send order notification email to admin"""
+        try:
+            print(f"\n{'='*60}")
+            print(f"📧 SENDGRID EMAIL SERVICE STARTING")
+            print(f"{'='*60}")
+            
+            # Check if SendGrid API key is configured
+            sendgrid_api_key = os.getenv('SENDGRID_API_KEY')
+            if not sendgrid_api_key or not ADMIN_EMAIL:
+                print(f"❌ SENDGRID NOT CONFIGURED")
+                print(f"   SENDGRID_API_KEY: {'SET' if sendgrid_api_key else 'NOT SET'}")
+                print(f"   ADMIN_EMAIL: {ADMIN_EMAIL}")
+                return False
+            
+            print(f"✅ SendGrid credentials found")
+            print(f"   SENDGRID_API_KEY: {sendgrid_api_key[:20]}...")
+            print(f"   ADMIN_EMAIL: {ADMIN_EMAIL}")
+            
+            # Calculate total items
+            items_list = ""
+            try:
+                items = json.loads(order_data.get('items', '[]'))
+                for item in items:
+                    items_list += f"<li>{item.get('name')} ({item.get('weight')}) x {item.get('quantity')} = ₹{item.get('unitPrice') * item.get('quantity')}</li>"
+            except:
+                items_list = f"<li>{order_data.get('items')}</li>"
+            
+            # HTML email template
+            html = f"""
+            <html>
+                <head>
+                    <style>
+                        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                        .container {{ max-width: 600px; margin: 0 auto; background: #f9f9f9; padding: 20px; border-radius: 8px; }}
+                        .header {{ background: #d32f2f; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center; }}
+                        .header h2 {{ margin: 0; }}
+                        .content {{ background: white; padding: 20px; }}
+                        .section {{ margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee; }}
+                        .section h3 {{ color: #d32f2f; margin-top: 0; }}
+                        .info-row {{ display: flex; justify-content: space-between; margin: 8px 0; }}
+                        .label {{ font-weight: bold; color: #666; }}
+                        .value {{ text-align: right; }}
+                        .items-list {{ list-style: none; padding: 0; }}
+                        .items-list li {{ padding: 8px; background: #f5f5f5; margin: 5px 0; border-radius: 4px; }}
+                        .total {{ font-size: 1.3em; font-weight: bold; color: #d32f2f; text-align: right; padding: 15px 0; }}
+                        .status {{ display: inline-block; padding: 8px 12px; background: #fff3e0; color: #e65100; border-radius: 4px; font-weight: bold; }}
+                        .footer {{ text-align: center; color: #999; font-size: 0.9em; margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px; }}
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <h2>📦 New Order Received!</h2>
+                        </div>
+                        
+                        <div class="content">
+                            <div class="section">
+                                <h3>Order Information</h3>
+                                <div class="info-row">
+                                    <span class="label">Order ID:</span>
+                                    <span class="value"><strong>{order_data['orderid']}</strong></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Date & Time:</span>
+                                    <span class="value">{datetime.now().strftime('%d-%m-%Y %H:%M:%S')}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Status:</span>
+                                    <span class="value"><span class="status">PENDING</span></span>
+                                </div>
+                            </div>
+                            
+                            <div class="section">
+                                <h3>Customer Information</h3>
+                                <div class="info-row">
+                                    <span class="label">Name:</span>
+                                    <span class="value">{order_data.get('firstName')} {order_data.get('lastName')}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Email:</span>
+                                    <span class="value">{order_data.get('email')}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Phone:</span>
+                                    <span class="value">{order_data.get('phoneNo')}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">City:</span>
+                                    <span class="value">{order_data.get('city')}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="section">
+                                <h3>Delivery Address</h3>
+                                <div style="background: #f5f5f5; padding: 12px; border-radius: 4px;">
+                                    <p style="margin: 0;">{order_data.get('address')}</p>
+                                    <p style="margin: 8px 0 0 0;"><strong>{order_data.get('city')} - {order_data.get('pincode')}</strong></p>
+                                </div>
+                            </div>
+                            
+                            <div class="section">
+                                <h3>Order Items</h3>
+                                <ul class="items-list">
+                                    {items_list}
+                                </ul>
+                            </div>
+                            
+                            <div class="section">
+                                <h3>Order Summary</h3>
+                                <div class="info-row">
+                                    <span class="label">Delivery Type:</span>
+                                    <span class="value">{order_data.get('deliveryType', 'Standard')}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Payment Method:</span>
+                                    <span class="value">{order_data.get('paymentMethod', 'N/A')}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Promo Code:</span>
+                                    <span class="value">{order_data.get('promocode') or 'None'}</span>
+                                </div>
+                                <div class="total">
+                                    Total Amount: ₹{order_data.get('total', 0)}
+                                </div>
+                            </div>
+                            
+                            <div class="footer">
+                                <p>This is an automated email from AMCMart Admin Panel.</p>
+                                <p>Login to your admin panel to update order status.</p>
+                            </div>
+                        </div>
+                    </div>
+                </body>
+            </html>
+            """
+            
+            # Create email
+            print(f"✅ Creating email message")
+            message = Mail(
+                from_email=ADMIN_EMAIL,
+                to_emails=ADMIN_EMAIL,
+                subject=f"🎉 New Order Received - {order_data['orderid']}",
+                html_content=html
+            )
+            
+            # Send via SendGrid
+            print(f"📤 Sending via SendGrid...")
+            sg = SendGridAPIClient(sendgrid_api_key)
+            response = sg.send(message)
+            
+            print(f"✅ Email sent successfully")
+            print(f"   Status Code: {response.status_code}")
+            print(f"   Order ID: {order_data['orderid']}")
+            print(f"{'='*60}")
+            print(f"✅ EMAIL SENT SUCCESSFULLY")
+            print(f"{'='*60}\n")
+            
+            return True
+        
+        except Exception as e:
+            print(f"\n{'='*60}")
+            print(f"❌ EMAIL ERROR")
+            print(f"{'='*60}")
+            print(f"Error: {e}")
+            import traceback
+            traceback.print_exc()
+            print(f"{'='*60}\n")
+            return False
 # class EmailService:
 #     """Handle email notifications"""
     
@@ -174,218 +348,218 @@ else:
 #             return False
 
 
-class EmailService:
-    """Handle email notifications"""
+# class EmailService:
+#     """Handle email notifications"""
     
-    @staticmethod
-    def send_order_notification(order_data):
-        """Send order notification email to admin"""
-        try:
-            print(f"\n{'='*60}")
-            print(f"📧 EMAIL SERVICE STARTING")
-            print(f"{'='*60}")
+#     @staticmethod
+#     def send_order_notification(order_data):
+#         """Send order notification email to admin"""
+#         try:
+#             print(f"\n{'='*60}")
+#             print(f"📧 EMAIL SERVICE STARTING")
+#             print(f"{'='*60}")
             
-            # Check if email is configured
-            if not ADMIN_EMAIL or not EMAIL_PASSWORD:
-                print(f"❌ EMAIL NOT CONFIGURED")
-                print(f"   ADMIN_EMAIL: {ADMIN_EMAIL}")
-                print(f"   EMAIL_PASSWORD: {'SET' if EMAIL_PASSWORD else 'NOT SET'}")
-                return False
+#             # Check if email is configured
+#             if not ADMIN_EMAIL or not EMAIL_PASSWORD:
+#                 print(f"❌ EMAIL NOT CONFIGURED")
+#                 print(f"   ADMIN_EMAIL: {ADMIN_EMAIL}")
+#                 print(f"   EMAIL_PASSWORD: {'SET' if EMAIL_PASSWORD else 'NOT SET'}")
+#                 return False
             
-            print(f"✅ Email credentials found")
-            print(f"   ADMIN_EMAIL: {ADMIN_EMAIL}")
-            print(f"   EMAIL_PASSWORD: {'*' * len(EMAIL_PASSWORD)}")
+#             print(f"✅ Email credentials found")
+#             print(f"   ADMIN_EMAIL: {ADMIN_EMAIL}")
+#             print(f"   EMAIL_PASSWORD: {'*' * len(EMAIL_PASSWORD)}")
             
-            # Create email message
-            msg = MIMEMultipart('alternative')
-            msg['Subject'] = f"🎉 New Order Received - {order_data['orderid']}"
-            msg['From'] = ADMIN_EMAIL
-            msg['To'] = ADMIN_EMAIL
+#             # Create email message
+#             msg = MIMEMultipart('alternative')
+#             msg['Subject'] = f"🎉 New Order Received - {order_data['orderid']}"
+#             msg['From'] = ADMIN_EMAIL
+#             msg['To'] = ADMIN_EMAIL
             
-            print(f"✅ Email message created")
-            print(f"   Subject: {msg['Subject']}")
-            print(f"   From: {msg['From']}")
-            print(f"   To: {msg['To']}")
+#             print(f"✅ Email message created")
+#             print(f"   Subject: {msg['Subject']}")
+#             print(f"   From: {msg['From']}")
+#             print(f"   To: {msg['To']}")
             
-            # Calculate total items
-            items_list = ""
-            try:
-                items = json.loads(order_data.get('items', '[]'))
-                for item in items:
-                    items_list += f"<li>{item.get('name')} ({item.get('weight')}) x {item.get('quantity')} = ₹{item.get('unitPrice') * item.get('quantity')}</li>"
-            except:
-                items_list = f"<li>{order_data.get('items')}</li>"
+#             # Calculate total items
+#             items_list = ""
+#             try:
+#                 items = json.loads(order_data.get('items', '[]'))
+#                 for item in items:
+#                     items_list += f"<li>{item.get('name')} ({item.get('weight')}) x {item.get('quantity')} = ₹{item.get('unitPrice') * item.get('quantity')}</li>"
+#             except:
+#                 items_list = f"<li>{order_data.get('items')}</li>"
             
-            # HTML email template
-            html = f"""
-            <html>
-                <head>
-                    <style>
-                        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                        .container {{ max-width: 600px; margin: 0 auto; background: #f9f9f9; padding: 20px; border-radius: 8px; }}
-                        .header {{ background: #d32f2f; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center; }}
-                        .header h2 {{ margin: 0; }}
-                        .content {{ background: white; padding: 20px; }}
-                        .section {{ margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee; }}
-                        .section h3 {{ color: #d32f2f; margin-top: 0; }}
-                        .info-row {{ display: flex; justify-content: space-between; margin: 8px 0; }}
-                        .label {{ font-weight: bold; color: #666; }}
-                        .value {{ text-align: right; }}
-                        .items-list {{ list-style: none; padding: 0; }}
-                        .items-list li {{ padding: 8px; background: #f5f5f5; margin: 5px 0; border-radius: 4px; }}
-                        .total {{ font-size: 1.3em; font-weight: bold; color: #d32f2f; text-align: right; padding: 15px 0; }}
-                        .status {{ display: inline-block; padding: 8px 12px; background: #fff3e0; color: #e65100; border-radius: 4px; font-weight: bold; }}
-                        .footer {{ text-align: center; color: #999; font-size: 0.9em; margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px; }}
-                    </style>
-                </head>
-                <body>
-                    <div class="container">
-                        <div class="header">
-                            <h2>📦 New Order Received!</h2>
-                        </div>
+#             # HTML email template
+#             html = f"""
+#             <html>
+#                 <head>
+#                     <style>
+#                         body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+#                         .container {{ max-width: 600px; margin: 0 auto; background: #f9f9f9; padding: 20px; border-radius: 8px; }}
+#                         .header {{ background: #d32f2f; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center; }}
+#                         .header h2 {{ margin: 0; }}
+#                         .content {{ background: white; padding: 20px; }}
+#                         .section {{ margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee; }}
+#                         .section h3 {{ color: #d32f2f; margin-top: 0; }}
+#                         .info-row {{ display: flex; justify-content: space-between; margin: 8px 0; }}
+#                         .label {{ font-weight: bold; color: #666; }}
+#                         .value {{ text-align: right; }}
+#                         .items-list {{ list-style: none; padding: 0; }}
+#                         .items-list li {{ padding: 8px; background: #f5f5f5; margin: 5px 0; border-radius: 4px; }}
+#                         .total {{ font-size: 1.3em; font-weight: bold; color: #d32f2f; text-align: right; padding: 15px 0; }}
+#                         .status {{ display: inline-block; padding: 8px 12px; background: #fff3e0; color: #e65100; border-radius: 4px; font-weight: bold; }}
+#                         .footer {{ text-align: center; color: #999; font-size: 0.9em; margin-top: 20px; border-top: 1px solid #eee; padding-top: 20px; }}
+#                     </style>
+#                 </head>
+#                 <body>
+#                     <div class="container">
+#                         <div class="header">
+#                             <h2>📦 New Order Received!</h2>
+#                         </div>
                         
-                        <div class="content">
-                            <div class="section">
-                                <h3>Order Information</h3>
-                                <div class="info-row">
-                                    <span class="label">Order ID:</span>
-                                    <span class="value"><strong>{order_data['orderid']}</strong></span>
-                                </div>
-                                <div class="info-row">
-                                    <span class="label">Date & Time:</span>
-                                    <span class="value">{datetime.now().strftime('%d-%m-%Y %H:%M:%S')}</span>
-                                </div>
-                                <div class="info-row">
-                                    <span class="label">Status:</span>
-                                    <span class="value"><span class="status">PENDING</span></span>
-                                </div>
-                            </div>
+#                         <div class="content">
+#                             <div class="section">
+#                                 <h3>Order Information</h3>
+#                                 <div class="info-row">
+#                                     <span class="label">Order ID:</span>
+#                                     <span class="value"><strong>{order_data['orderid']}</strong></span>
+#                                 </div>
+#                                 <div class="info-row">
+#                                     <span class="label">Date & Time:</span>
+#                                     <span class="value">{datetime.now().strftime('%d-%m-%Y %H:%M:%S')}</span>
+#                                 </div>
+#                                 <div class="info-row">
+#                                     <span class="label">Status:</span>
+#                                     <span class="value"><span class="status">PENDING</span></span>
+#                                 </div>
+#                             </div>
                             
-                            <div class="section">
-                                <h3>Customer Information</h3>
-                                <div class="info-row">
-                                    <span class="label">Name:</span>
-                                    <span class="value">{order_data.get('firstName')} {order_data.get('lastName')}</span>
-                                </div>
-                                <div class="info-row">
-                                    <span class="label">Email:</span>
-                                    <span class="value">{order_data.get('email')}</span>
-                                </div>
-                                <div class="info-row">
-                                    <span class="label">Phone:</span>
-                                    <span class="value">{order_data.get('phoneNo')}</span>
-                                </div>
-                                <div class="info-row">
-                                    <span class="label">City:</span>
-                                    <span class="value">{order_data.get('city')}</span>
-                                </div>
-                            </div>
+#                             <div class="section">
+#                                 <h3>Customer Information</h3>
+#                                 <div class="info-row">
+#                                     <span class="label">Name:</span>
+#                                     <span class="value">{order_data.get('firstName')} {order_data.get('lastName')}</span>
+#                                 </div>
+#                                 <div class="info-row">
+#                                     <span class="label">Email:</span>
+#                                     <span class="value">{order_data.get('email')}</span>
+#                                 </div>
+#                                 <div class="info-row">
+#                                     <span class="label">Phone:</span>
+#                                     <span class="value">{order_data.get('phoneNo')}</span>
+#                                 </div>
+#                                 <div class="info-row">
+#                                     <span class="label">City:</span>
+#                                     <span class="value">{order_data.get('city')}</span>
+#                                 </div>
+#                             </div>
                             
-                            <div class="section">
-                                <h3>Delivery Address</h3>
-                                <div style="background: #f5f5f5; padding: 12px; border-radius: 4px;">
-                                    <p style="margin: 0;">{order_data.get('address')}</p>
-                                    <p style="margin: 8px 0 0 0;"><strong>{order_data.get('city')} - {order_data.get('pincode')}</strong></p>
-                                </div>
-                            </div>
+#                             <div class="section">
+#                                 <h3>Delivery Address</h3>
+#                                 <div style="background: #f5f5f5; padding: 12px; border-radius: 4px;">
+#                                     <p style="margin: 0;">{order_data.get('address')}</p>
+#                                     <p style="margin: 8px 0 0 0;"><strong>{order_data.get('city')} - {order_data.get('pincode')}</strong></p>
+#                                 </div>
+#                             </div>
                             
-                            <div class="section">
-                                <h3>Order Items</h3>
-                                <ul class="items-list">
-                                    {items_list}
-                                </ul>
-                            </div>
+#                             <div class="section">
+#                                 <h3>Order Items</h3>
+#                                 <ul class="items-list">
+#                                     {items_list}
+#                                 </ul>
+#                             </div>
                             
-                            <div class="section">
-                                <h3>Order Summary</h3>
-                                <div class="info-row">
-                                    <span class="label">Delivery Type:</span>
-                                    <span class="value">{order_data.get('deliveryType', 'Standard')}</span>
-                                </div>
-                                <div class="info-row">
-                                    <span class="label">Payment Method:</span>
-                                    <span class="value">{order_data.get('paymentMethod', 'N/A')}</span>
-                                </div>
-                                <div class="info-row">
-                                    <span class="label">Promo Code:</span>
-                                    <span class="value">{order_data.get('promocode') or 'None'}</span>
-                                </div>
-                                <div class="total">
-                                    Total Amount: ₹{order_data.get('total', 0)}
-                                </div>
-                            </div>
+#                             <div class="section">
+#                                 <h3>Order Summary</h3>
+#                                 <div class="info-row">
+#                                     <span class="label">Delivery Type:</span>
+#                                     <span class="value">{order_data.get('deliveryType', 'Standard')}</span>
+#                                 </div>
+#                                 <div class="info-row">
+#                                     <span class="label">Payment Method:</span>
+#                                     <span class="value">{order_data.get('paymentMethod', 'N/A')}</span>
+#                                 </div>
+#                                 <div class="info-row">
+#                                     <span class="label">Promo Code:</span>
+#                                     <span class="value">{order_data.get('promocode') or 'None'}</span>
+#                                 </div>
+#                                 <div class="total">
+#                                     Total Amount: ₹{order_data.get('total', 0)}
+#                                 </div>
+#                             </div>
                             
-                            <div class="footer">
-                                <p>This is an automated email from AMCMart Admin Panel.</p>
-                                <p>Login to your admin panel to update order status.</p>
-                            </div>
-                        </div>
-                    </div>
-                </body>
-            </html>
-            """
+#                             <div class="footer">
+#                                 <p>This is an automated email from AMCMart Admin Panel.</p>
+#                                 <p>Login to your admin panel to update order status.</p>
+#                             </div>
+#                         </div>
+#                     </div>
+#                 </body>
+#             </html>
+#             """
             
-            msg.attach(MIMEText(html, 'html'))
-            print(f"✅ Email HTML attached")
+#             msg.attach(MIMEText(html, 'html'))
+#             print(f"✅ Email HTML attached")
             
-            # Connect to SMTP server
-            print(f"🔗 Connecting to SMTP server: {SMTP_SERVER}:{SMTP_PORT}")
-            server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-            print(f"✅ SMTP connection established")
+#             # Connect to SMTP server
+#             print(f"🔗 Connecting to SMTP server: {SMTP_SERVER}:{SMTP_PORT}")
+#             server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+#             print(f"✅ SMTP connection established")
             
-            # Start TLS
-            print(f"🔐 Starting TLS encryption...")
-            server.starttls()
-            print(f"✅ TLS started")
+#             # Start TLS
+#             print(f"🔐 Starting TLS encryption...")
+#             server.starttls()
+#             print(f"✅ TLS started")
             
-            # Login
-            print(f"🔑 Logging in to Gmail account...")
-            server.login(ADMIN_EMAIL, EMAIL_PASSWORD)
-            print(f"✅ Gmail login successful")
+#             # Login
+#             print(f"🔑 Logging in to Gmail account...")
+#             server.login(ADMIN_EMAIL, EMAIL_PASSWORD)
+#             print(f"✅ Gmail login successful")
             
-            # Send message
-            print(f"📤 Sending email...")
-            server.send_message(msg)
-            print(f"✅ Email sent successfully")
+#             # Send message
+#             print(f"📤 Sending email...")
+#             server.send_message(msg)
+#             print(f"✅ Email sent successfully")
             
-            # Close connection
-            server.quit()
-            print(f"✅ SMTP connection closed")
-            print(f"{'='*60}")
-            print(f"✅ EMAIL SENT SUCCESSFULLY")
-            print(f"{'='*60}\n")
+#             # Close connection
+#             server.quit()
+#             print(f"✅ SMTP connection closed")
+#             print(f"{'='*60}")
+#             print(f"✅ EMAIL SENT SUCCESSFULLY")
+#             print(f"{'='*60}\n")
             
-            return True
+#             return True
         
-        except smtplib.SMTPAuthenticationError as e:
-            print(f"\n{'='*60}")
-            print(f"❌ AUTHENTICATION ERROR - Gmail Login Failed")
-            print(f"{'='*60}")
-            print(f"Error: {e}")
-            print(f"Possible causes:")
-            print(f"  1. Incorrect ADMIN_EMAIL")
-            print(f"  2. Incorrect EMAIL_PASSWORD (app password)")
-            print(f"  3. 2FA enabled but no app password generated")
-            print(f"{'='*60}\n")
-            return False
+#         except smtplib.SMTPAuthenticationError as e:
+#             print(f"\n{'='*60}")
+#             print(f"❌ AUTHENTICATION ERROR - Gmail Login Failed")
+#             print(f"{'='*60}")
+#             print(f"Error: {e}")
+#             print(f"Possible causes:")
+#             print(f"  1. Incorrect ADMIN_EMAIL")
+#             print(f"  2. Incorrect EMAIL_PASSWORD (app password)")
+#             print(f"  3. 2FA enabled but no app password generated")
+#             print(f"{'='*60}\n")
+#             return False
         
-        except smtplib.SMTPException as e:
-            print(f"\n{'='*60}")
-            print(f"❌ SMTP ERROR")
-            print(f"{'='*60}")
-            print(f"Error: {e}")
-            print(f"{'='*60}\n")
-            return False
+#         except smtplib.SMTPException as e:
+#             print(f"\n{'='*60}")
+#             print(f"❌ SMTP ERROR")
+#             print(f"{'='*60}")
+#             print(f"Error: {e}")
+#             print(f"{'='*60}\n")
+#             return False
         
-        except Exception as e:
-            print(f"\n{'='*60}")
-            print(f"❌ UNEXPECTED ERROR")
-            print(f"{'='*60}")
-            print(f"Error: {e}")
-            import traceback
-            traceback.print_exc()
-            print(f"{'='*60}\n")
-            return False
+#         except Exception as e:
+#             print(f"\n{'='*60}")
+#             print(f"❌ UNEXPECTED ERROR")
+#             print(f"{'='*60}")
+#             print(f"Error: {e}")
+#             import traceback
+#             traceback.print_exc()
+#             print(f"{'='*60}\n")
+#             return False
 class DatabaseManager:
     def __init__(self):
         self.lock = threading.Lock()
@@ -905,4 +1079,5 @@ def run_server(port=5000):
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     run_server(port)
+
 
